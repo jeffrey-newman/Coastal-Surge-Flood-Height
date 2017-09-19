@@ -2,7 +2,7 @@ project(coastal-surge-inundation)
 cmake_minimum_required(VERSION 3.1)
 set (CMAKE_CXX_STANDARD 11)
 
-find_package(Boost REQUIRED COMPONENTS filesystem system program_options serialization iostreams)
+find_package(Boost REQUIRED COMPONENTS filesystem system program_options serialization iostreams graph)
 find_package(GDAL REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -29,8 +29,8 @@ set(CoastInundateHdrs
         Pathify.hpp
 )
 
-message(STATUS "AHHZ raster path is:" ${AHHZ_RASTER_UTIL})
-message(STATUS "AHHZ iterator path is:" ${AHHZ_RASTER_ITERATOR})
+#message(STATUS "AHHZ raster path is:" ${AHHZ_RASTER_UTIL})
+#message(STATUS "AHHZ iterator path is:" ${AHHZ_RASTER_ITERATOR})
 
 file(GLOB_RECURSE AHHZ_Utils
 "${AHHZ_RASTER_UTIL}/*.h"
@@ -40,7 +40,7 @@ file(GLOB_RECURSE AHHZ_Utils
 "${AHHZ_RASTER_ITERATOR}/*.hpp"
 "${AHHZ_RASTER_ITERATOR}/*.cpp"
 )
-message(STATUS "AHHZ files found:" ${AHHZ_Utils})
+#message(STATUS "AHHZ files found:" ${AHHZ_Utils})
 
 add_executable(coastal-inundation ${CoastInundateSrcs} ${CoastInundateHdrs} ${AHHZ_Utils})
 target_link_libraries(coastal-inundation ${GDAL_LIBRARY} ${Boost_LIBRARIES} ${ZLIB_LIBRARIES})

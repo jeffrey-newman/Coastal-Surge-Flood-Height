@@ -13,7 +13,13 @@
 #include <limits>
 #include <tuple>
 
-#include <gdal.h>
+#ifdef WITH_MAC_FRAMEWORK
+#include <GDAL/cpl_string.h> // part of GDAL
+#include <GDAL/gdal.h>       // part of GDAL
+#else
+#include <cpl_string.h> // part of GDAL
+#include <gdal.h>       // part of GDAL
+#endif
 
 #include <boost/filesystem.hpp>
 #include <boost/foreach.hpp>

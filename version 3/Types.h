@@ -10,10 +10,15 @@
 #define Types_h
 
 #include <functional>
+#include <vector>
+#include <tuple>
+
+#include <boost/shared_ptr.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/graph/adjacency_list.hpp>
+
 #include <blink/raster/coordinate_2d.h>
 #include "GZArchive.hpp"
-#include <boost/filesystem.hpp>
-
 
 namespace raster_util = blink::raster;
 
@@ -115,5 +120,62 @@ saveSurgePixelVector(const boost::filesystem::path & file_path, SurgePixelSPtrVe
 {
     saveGZFile_< SurgePixelSPtrVecSPtr, boost::archive::binary_oarchive>(surge_pixels, file_path.string().c_str());
 }
+
+enum TNodeType{NOT_CNTRL = 1, TERMINAL_CNTRL = 2, GUAGE_CNTRL = 4, JUNCT_CNTRL = 8};
+enum TerminalType{NOT_TERMINAL = 1, OUTFLOW = 2, SOURCE=3};
+
+struct ChannelNode;
+struct ChannelLink;
+//namespace graph = boost::graph;
+//typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::directedS, ChannelNode > Graph;
+typedef boost::adjacency_list<boost::setS, boost::setS, boost::undirectedS, ChannelNode, ChannelLink > Graph;
+typedef boost::graph_traits<Graph>::vertex_descriptor VertexDescriptor;
+typedef boost::graph_traits<Graph>::edge_descriptor EdgeDescriptor;
+typedef boost::graph_traits<Graph>::out_edge_iterator OutEdgeIterator;
+typedef boost::graph_traits<Graph>::vertex_iterator VertexIterator;
+typedef boost::graph_traits<Graph>::edge_iterator EdgeIterator;
+typedef std::map<VertexDescriptor, size_t> VertexDescMap;
+typedef std::map<int, VertexDescriptor> VertexIDMap;
+typedef boost::graph_traits<Graph>::degree_size_type OutDegreeType;
+
+struct ChannelNode
+{
+    int node_id;
+    int cntrl_node_id;
+    int row;
+    int col;
+    int down_cntrl_id;
+    int down_cntrl_dist;
+    int up_cntrl_id;
+    int up_cntrl_dist;
+    int type;
+    int terminal_type;
+    double level;
+    double elevation;
+    double x_coord;
+    double y_coord;
+
+    ChannelNode
+            (): node_id(-1), cntrl_node_id(-1), row(-1), col(-1), down_cntrl_id(-1), down_cntrl_dist(-1), up_cntrl_id(-1), up_cntrl_dist(-1), type(NOT_CNTRL), terminal_type(NOT_TERMINAL), level(-999), elevation(-999), x_coord(-999), y_coord(-999)
+    {
+
+    }
+};
+
+struct ChannelLink
+{
+    int link_id;
+    int distance;
+
+    ChannelLink(): link_id(-1), distance(-1)
+    {
+
+    }
+};
+
+
+typedef std::vector<ChannelNode> Set;
+
+
 
 #endif
