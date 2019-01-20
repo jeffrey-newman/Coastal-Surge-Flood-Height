@@ -85,9 +85,15 @@ processCmdLineArguments(int argc, char* argv[], CoastalBoundaryParameters & _par
     catch (boost::filesystem::filesystem_error & err)
     {
         std::stringstream ss;
-        ss << "Filesystem error: " << err.what();
+        ss << "Runtime error encountered while pathifying input dem file: " << _params.input_dem_file << ": " <<  "Filesystem error: " << err.what() << "\n" << desc << "\n";
         throw std::runtime_error(ss.str());
     }
+	catch (std::runtime_error & err)
+	{
+		std::stringstream ss;
+		ss << "Runtime error encountered while pathifying input dem file: " << _params.input_dem_file << ": " << err.what() << "\n" << desc << "\n";
+		throw std::runtime_error(ss.str());
+	}
 
     try{
         pathify_mk(_params.output_dem_file);
@@ -95,9 +101,15 @@ processCmdLineArguments(int argc, char* argv[], CoastalBoundaryParameters & _par
     catch (boost::filesystem::filesystem_error & err)
     {
         std::stringstream ss;
-        ss << "Filesystem error: " << err.what();
+		ss << "Runtime error encountered while pathifying input dem file: " << _params.output_dem_file << ": " << "Filesystem error: " << err.what() << "\n" << desc << "\n";
         throw std::runtime_error(ss.str());
     }
+	catch (std::runtime_error & err)
+	{
+		std::stringstream ss;
+		ss << "Runtime error encountered while pathifying output dem file: " << _params.output_dem_file << ": " << err.what() << "\n" << desc << "\n";
+		throw std::runtime_error(ss.str());
+	}
 
 }
 
@@ -107,7 +119,16 @@ int main(int argc, char* argv[])
     typedef raster_util::coordinate_2d Coord;
 
     CoastalBoundaryParameters params;
-    processCmdLineArguments(argc, argv, params);
+	try
+	{
+		processCmdLineArguments(argc, argv, params);
+	}
+	catch (const std::runtime_error & err)
+	{
+		std::cout << err.what();
+		return EXIT_SUCCESS;
+	}
+    
 
     std::cout << "\n\n*************************************\n";
     std::cout << "*      Setting up output raster     *\n";
@@ -129,20 +150,23 @@ int main(int argc, char* argv[])
         return EXIT_SUCCESS;
     }
 
-    int cols = dem_map->nCols();
-    int rows = dem_map->nRows();
-    int max_row = rows - 1;
-    int max_col = cols - 1;
+	std::cout << "\n\n*************************************\n";
+	std::cout << "*   Applying surious nulls filter   *\n";
+	std::cout << "*************************************" << std::endl;
+    const int cols = dem_map->nCols();
+    const int rows = dem_map->nRows();
+    const int max_row = rows - 1;
+    const int max_col = cols - 1;
 
-    unsigned long num_cells = cols;
-    num_cells *= rows;
-    boost::progress_display show_progress1(num_cells);
+    const unsigned long long num_cells = cols * rows;
+    //num_cells *= rows;
+    boost::progress_display show_progress1(rows);
 
         for (int r = 0; r < rows; ++r)
         {
+			++show_progress1;
             for (int c = 0; c < cols; ++c)
-            {
-                ++show_progress1;
+            {                
                 Coord cell_loc(r,c);
                 if (dem_map->get(cell_loc) == dem_null_value)
                 {
@@ -168,7 +192,14 @@ int main(int argc, char* argv[])
                             }
                         }
                     }
-                    infill_val /= num_neighbours;
+					if (num_neighbours > 0)
+					{
+						infill_val /= num_neighbours;
+					}
+					else
+					{
+						do_infill = false;
+					}
                     if (do_infill)  output_map->put(cell_loc, infill_val);
                 }
             }

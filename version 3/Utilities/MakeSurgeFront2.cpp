@@ -54,53 +54,7 @@ std::pair<std::string, std::string> at_option_parser(std::string const&s)
         return std::pair<std::string, std::string>();
 }
 
-void
-controlSearchVisit2(Graph & channel_graph, VertexDescriptor u, int distance,  VertexDescriptor start_vertex, VertexDescriptor from_vertex)
-{
 
-    if (channel_graph[u].up_cntrl_id == -1)
-    {
-        channel_graph[u].up_cntrl_id = channel_graph[start_vertex].node_id;
-        channel_graph[u].up_cntrl_dist = distance;
-    }
-    else if (channel_graph[u].down_cntrl_id == -1)
-    {
-        channel_graph[u].down_cntrl_id = channel_graph[start_vertex].node_id;
-        channel_graph[u].down_cntrl_dist = distance;
-    }
-
-    if (channel_graph[u].type > 1)
-    {
-        return;
-    }
-    else
-    {
-
-        ++distance;
-        boost::graph_traits<Graph>::adjacency_iterator ai;
-        boost::graph_traits<Graph>::adjacency_iterator ai_end;
-        for (tie(ai, ai_end) = boost::adjacent_vertices(u, channel_graph);
-             ai != ai_end; ++ai)
-        {
-            if (*ai != from_vertex) controlSearchVisit2(channel_graph, *ai, distance, start_vertex, u);
-        }
-    }
-}
-
-void
-controlSearch2(Graph& channel_graph,  VertexDescriptor channel_vertex)
-{
-    boost::graph_traits<Graph>::adjacency_iterator ai;
-    boost::graph_traits<Graph>::adjacency_iterator ai_end;
-    int distance = 1;
-
-    for (tie(ai, ai_end) = boost::adjacent_vertices(channel_vertex, channel_graph);
-         ai != ai_end; ++ai)
-    {
-        controlSearchVisit2(channel_graph, *ai, distance, channel_vertex, channel_vertex);
-    }
-
-}
 
 
 
@@ -272,14 +226,20 @@ int main(int argc, char* argv[])
 
     boost::progress_display show_progress2(boost::num_vertices(channel_grph));
 
-    while( (poFeature = poLayer->GetNextFeature()) != NULL )
-    {
-        closest_coast_pixel_map[poFeature->GetFID()] = std::make_pair(&(channel_grph[*di]), std::numeric_limits<double>::max());
-    }
+    //while( (poFeature = poLayer->GetNextFeature()) != NULL )
+    //{
+    //    closest_coast_pixel_map[poFeature->GetFID()] = std::make_pair(&(channel_grph[*di]), std::numeric_limits<double>::max());
+    //}
 
-	// for each vertex in graph, look at each point and if the distance is 
+	struct CloseControls
+	{
+		double dist = std::numeric_limits<double>::max();
+		GIntBig control;
+	};
+
     for(; di != dj; ++di)
     {
+		CloseControls nearest, second_nearest;
         poLayer->ResetReading();
         OGRFeature * poFeature;
         while( (poFeature = poLayer->GetNextFeature()) != NULL )
@@ -295,88 +255,26 @@ int main(int argc, char* argv[])
                 double raster_y = channel_grph[*di].y_coord;
                 double dist = std::sqrt(std::pow(control_x-raster_x,2) + std::pow(control_y-raster_y,2));
 
-                if(closest_coast_pixel_map[poFeature->GetFID()].second >= dist)
-                {
-                    closest_coast_pixel_map[poFeature->GetFID()].second = dist;
-                    closest_coast_pixel_map[poFeature->GetFID()].first = *di;
-                }
-            }
-            OGRFeature::DestroyFeature( poFeature );
+				if (dist < nearest.dist)
+				{
+					nearest.dist = dist;
+					nearest.control = poFeature->GetFID();
+				}
+				else if (dist < second_nearest.dist)
+				{
+					second_nearest.dist = dist;
+					second_nearest.control = poFeature->GetFID();
+				}
+
+            }            
         }
         ++show_progress2;
+		channel_grph[*di].down_cntrl_id = nearest.control;
+		channel_grph[*di].down_cntrl_dist = nearest.dist;
+		channel_grph[*di].up_cntrl_id = second_nearest.control;
+		channel_grph[*di].up_cntrl_dist = second_nearest.dist;
+		OGRFeature::DestroyFeature(poFeature);
     }
-
-    boost::progress_display show_progress5(closest_coast_pixel_map.size());
-    std::pair<VertexIterator, VertexIterator> vp;
-    for (vp = boost::vertices(channel_grph); vp.first != vp.second; ++vp.first)
-    {
-        OutDegreeType num_edges = boost::out_degree(*(vp.first), channel_grph);
-        if (num_edges == 1) {
-            //Find closest control to terminal nodes in graph.
-            poLayer->ResetReading();
-            OGRFeature *poFeature;
-            double min_dist = std::numeric_limits<double>::max();
-            GIntBig closest_control;
-
-            ChannelNode &control_node = channel_grph[*vp.first];
-
-            double raster_x = control_node.x_coord;
-            double raster_y = control_node.y_coord;
-
-            while ((poFeature = poLayer->GetNextFeature()) != NULL) {
-                poGeometry = poFeature->GetGeometryRef();
-                if (poGeometry != NULL
-                    && wkbFlatten(poGeometry->getGeometryType()) == wkbPoint) {
-                    OGRPoint *poPoint = (OGRPoint *) poGeometry;
-                    double control_x = poPoint->getX();
-                    double control_y = poPoint->getY();
-
-                    double dist = std::sqrt(std::pow(control_x - raster_x, 2) + std::pow(control_y - raster_y, 2));
-                    if (dist < min_dist) {
-                        min_dist = dist;
-                        closest_control = poFeature->GetFID();
-                    }
-
-                    if (closest_coast_pixel_map[poFeature->GetFID()].second >= dist) {
-                        closest_coast_pixel_map[poFeature->GetFID()].second = dist;
-                        closest_coast_pixel_map[poFeature->GetFID()].first = *di;
-                    }
-                }
-
-                OGRFeature::DestroyFeature(poFeature);
-            }
-            poFeature = poLayer->GetFeature(closest_control);
-
-            control_node.level = poFeature->GetFieldAsDouble(field_index);
-            control_node.type = GUAGE_CNTRL + TERMINAL_CNTRL;
-            idMap.insert(std::make_pair(control_node.node_id, *vp.first));
-            OGRFeature::DestroyFeature(poFeature);
-        }
-
-
-    }
-
-    int control_node_id = 0;
-    boost::progress_display show_progress3(closest_coast_pixel_map.size());
-    typedef std::pair<const GIntBig, std::pair<VertexDescriptor, double> > ClosestCoastPixelPair;
-    BOOST_FOREACH(ClosestCoastPixelPair & control, closest_coast_pixel_map) {
-                    ++show_progress3;
-                    poFeature = poLayer->GetFeature(control.first);
-                    ChannelNode &control_node = channel_grph[control.second.first];
-                    control_node.level = poFeature->GetFieldAsDouble(field_index);
-                    control_node.type = GUAGE_CNTRL;
-                    idMap.insert(std::make_pair(control_node.node_id, control.second.first));
-                    OGRFeature::DestroyFeature(poFeature);
-                }
-
-    typedef std::pair<const int, VertexDescriptor> VertexIDPair;
-    BOOST_FOREACH(VertexIDPair & control_vertices, idMap)
-                {
-                // Set all adjacent nodes to use this control to interpolate on.
-                controlSearch2(channel_grph, control_vertices.second);
-            }
-
-
 
     std::cout << "\n\n*************************************\n";
     std::cout <<     "*       Linearly interpolating      *\n";
@@ -387,6 +285,7 @@ int main(int argc, char* argv[])
 
 
     boost::progress_display show_progress4(boost::num_vertices(channel_grph));
+	std::pair<VertexIterator, VertexIterator> vp;
     for (vp = boost::vertices(channel_grph); vp.first != vp.second; ++vp.first)
     {
         ChannelNode & node = channel_grph[*vp.first];
@@ -397,8 +296,8 @@ int main(int argc, char* argv[])
             if (up_dist != -1 && down_dist != -1) {
                 VertexDescriptor down_node = idMap[node.down_cntrl_id];
                 VertexDescriptor up_node = idMap[node.up_cntrl_id];
-                double up_level = channel_grph[up_node].level;
-                double down_level = channel_grph[down_node].level;
+                double up_level = poLayer->GetFeature(node.up_cntrl_id)->GetFieldAsDouble(field_index);
+                double down_level = poLayer->GetFeature(node.down_cntrl_id)->GetFieldAsDouble(field_index);
                 node.level = (down_dist * down_level
                               + up_dist * up_level)
                              / (up_dist + down_dist);
@@ -432,16 +331,15 @@ int main(int argc, char* argv[])
     float out_no_data_val = 0.0;
     const_cast<GDALRasterBand *>(output_map->get_gdal_band())->SetNoDataValue(out_no_data_val);
 
-
     int cols = output_map->nCols();
     int rows = output_map->nRows();
     unsigned long num_cells = cols;
     num_cells *= rows;
-    boost::progress_display show_progress1(num_cells);
+    boost::progress_display show_progress1(rows);
 
     for (unsigned int i = 0; i < rows; ++i) {
-        for (unsigned int j = 0; j < cols; ++j) {
-            ++show_progress1;
+		++show_progress1;
+        for (unsigned int j = 0; j < cols; ++j) {            
             output_map->put(Coord(i, j),out_no_data_val);
         }
     }

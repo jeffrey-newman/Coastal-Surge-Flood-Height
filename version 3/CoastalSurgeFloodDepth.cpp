@@ -31,6 +31,7 @@
 
 #include "Types.h"
 #include "CoastalSurgeParameters.hpp"
+#include "./Utilities/ReadGraphsFromFile.h"
 
 #include "GZArchive.hpp"
 
@@ -79,6 +80,12 @@ int main(int argc, char **argv)
 //    boost::shared_ptr<raster_util::gdal_raster<int> > coast_demark_map = raster_util::open_gdal_rasterSPtr<int>
 //            (params.coast_demark_file.second, GA_ReadOnly);
 
+	const float OUT_NO_DATA_VAL = 0.0;
+	const float OUT_NOT_VISITED_VAL = -1.0;
+	const float DIAG_DIST = std::sqrt(2.0);
+	const float DIRECT_DIAG_DECAY = std::pow(params.direct_attenuation, DIAG_DIST);
+	const float INDIRECT_DIAG_DECAY = std::pow(params.indirect_attenuation, DIAG_DIST);
+
 
     for (int k = 0; k < params.surge_front_files_v.size(); ++k)
     {
@@ -93,62 +100,125 @@ int main(int argc, char **argv)
         std::cout << "\n\n*************************************\n";
         std::cout << "*      Setting up output raster     *\n";
         std::cout << "*************************************" << std::endl;
-        boost::filesystem::copy_file(params.dem_file.second, output_path.second);
-        boost::shared_ptr<raster_util::gdal_raster<float> > output_map =
-                raster_util::open_gdal_rasterSPtr<float>(output_path.second, GA_Update);
+        //boost::filesystem::copy_file(params.dem_file.second, output_path.second);
+        //boost::shared_ptr<raster_util::gdal_raster<float> > output_map =
+                //raster_util::open_gdal_rasterSPtr<float>(output_path.second, GA_Update);
+		boost::shared_ptr<raster_util::gdal_raster<float> > output_map = 
+			raster_util::create_gdal_rasterSPtr_from_model<float, float>(output_path.second, 
+				*dem_map, blink::raster::native_gdal_data_type<float>::type);
+		const_cast<GDALRasterBand *>(output_map->get_gdal_band())->SetNoDataValue(OUT_NO_DATA_VAL);
+
+		int cols = output_map->nCols();
+		int rows = output_map->nRows();
+		unsigned long num_cells = cols;
+		num_cells *= rows;
+		boost::progress_display show_progress1(rows);
 
         //Change all land pixels to unprocessed value flag
-        boost::progress_display show_progress1(output_map->nRows() * output_map->nCols());
+		for (unsigned int i = 0; i < rows; ++i) 
+		{
+			++show_progress1;
+			for (unsigned int j = 0; j < cols; ++j) 
+			{
+				output_map->put(Coord(i, j), OUT_NOT_VISITED_VAL);
+			}
+		}
+
+        /*boost::progress_display show_progress1(output_map->nRows() * output_map->nCols());
         auto zip = raster_it::make_zip_range(std::ref(*output_map));
         for (auto i : zip)
         {
             auto &val = std::get<0>(i);
             if (val != dem_null_value) val = 0;
             ++show_progress1;
-        }
+        }*/
 
 
         std::cout << "\n\n*************************************\n";
-        std::cout << "*Reading list of surge front pixels:*\n";
+        std::cout << "*Reading surge front data:*\n";
         std::cout << "*************************************" << std::endl;
-        SurgePixelSPtrVecSPtr surge_pixels = loadSurgePixelVector(surge_front_path.second);
+        //SurgePixelSPtrVecSPtr surge_pixels = loadSurgePixelVector(surge_front_path.second);
+		/**********************************/
+		/*       Create graph object      */
+		/**********************************/
+		Graph channel_grph;
+		SurgePixelSPtrVecSPtr surge_pixels(new std::vector<SurgePixelSPtr>);
 
+		/**********************************/
+		/*         Read in Graph           */
+		/**********************************/
+		readGraphFromFile(surge_front_path.second, channel_grph);
+		VertexIterator di, dj;
+		boost::tie(di, dj) = boost::vertices(channel_grph);
+		boost::progress_display show_progress2(boost::num_vertices(channel_grph));
+		for (; di != dj; ++di)
+		{
+			ChannelNode & node = channel_grph[*di];
+			if (node.level > 0) {
+				SurgePixelSPtr surge_px(new SurgePixel(
+					raster_util::coordinate_2d(node.row, node.col),
+					node.level,
+					node.level,
+					0
+				));
+				surge_pixels->push_back(surge_px);
+			}
+			++show_progress2;
+		}
+
+
+		int iteration_count = 0;
         while (!(surge_pixels->empty()))
         {
-
+			std::cout << "ITERATION: " << ++iteration_count << "\n";
             std::cout << "\n\n*************************************\n";
             std::cout << "*      Finding adjacent pixels:     *\n";
             std::cout << "*************************************" << std::endl;
             //Find next front of pixels
             std::map<int, std::map<int, SurgePixelSPtrVecSPtr> > adjacent_pixels;
-            BOOST_FOREACH(SurgePixelSPtr cell, *surge_pixels)
-                        {
+			int adjacent_count = 0;
+			boost::progress_display show_progress3(surge_pixels->size());
+            for(SurgePixelSPtr cell: *surge_pixels)
+            {
+				if (cell->surge_height_direct > 0.01 || cell->surge_height_indirect > 0.01)
+				{
 
+					int end_y = (int)(std::min(int(cell->loc.row) + 1, max_y));
+					int begin_y = (int)std::max(int(cell->loc.row) - 1, 0);
+					int end_x = (int)std::min(int(cell->loc.col) + 1, max_x);
+					int begin_x = (int)std::max(int(cell->loc.col) - 1, 0);
+					for (int ti = begin_y; ti <= end_y; ++ti)
+					{
+						for (int tj = begin_x; tj <= end_x; ++tj)
+						{
+							Coord nh_loc(ti, tj);
+							auto elevation_in_adjacent = dem_map->get(nh_loc);
+							auto surge_in_adjacent = output_map->get(nh_loc);
+							if (elevation_in_adjacent != dem_null_value)
+							{
+								if (surge_in_adjacent == OUT_NOT_VISITED_VAL)
+								{
+									if (!(adjacent_pixels[ti][tj])) adjacent_pixels[ti][tj] = SurgePixelSPtrVecSPtr(
+											new SurgePixelSPtrVec);
+									adjacent_pixels[ti][tj]->push_back(cell);
+									++adjacent_count;
+								}
+								else if (surge_in_adjacent < cell->surge_height_indirect) //Can visit cells already visited by other inundation paths, but condition means that infinite loops in an individual inundation path should not occur.
+								{
+									if (!(adjacent_pixels[ti][tj]))
+											adjacent_pixels[ti][tj] = SurgePixelSPtrVecSPtr(
+												new SurgePixelSPtrVec);
+									adjacent_pixels[ti][tj]->push_back(cell);
+									++adjacent_count;
+								}
+							}
+						}
+					}
+				}
+				++show_progress3;
+            }
 
-                            int end_y = (int) (std::min(int(cell->loc.row) + 1, max_y));
-                            int begin_y = (int) std::max(int(cell->loc.row) - 1, 0);
-                            int end_x = (int) std::min(int(cell->loc.col) + 1, max_x);
-                            int begin_x = (int) std::max(int(cell->loc.col) - 1, 0);
-                            for (int ti = begin_y; ti <= end_y; ++ti)
-                            {
-                                for (int tj = begin_x; tj <= end_x; ++tj)
-                                {
-                                    Coord nh_loc(ti, tj);
-                                    auto surge_in_adjacent = output_map->get(nh_loc);
-                                    if (surge_in_adjacent != dem_null_value)
-                                    {
-                                        if (surge_in_adjacent == 0)
-                                        {
-                                            adjacent_pixels[ti][tj]->push_back(cell);
-                                        }
-                                        else if (surge_in_adjacent < cell->surge_height_indirect)
-                                        {
-                                            adjacent_pixels[ti][tj]->push_back(cell);
-                                        }
-                                    }
-                                }
-                            }
-                        }
+			if (adjacent_count == 0) std::cout << "Note: there were no cells adjacent that could potentially be inundated from current surge front\n";
 
             std::cout << "\n\n*************************************\n";
             std::cout << "*Finding direct&indirect inundation *\n";
@@ -160,20 +230,20 @@ int main(int argc, char **argv)
             float indirect_surge_height;
             float direct_surge_height;
             float dist;
-            const float DIAG_DIST = std::sqrt(2.0);
-            const float DIRECT_DIAG_DECAY = std::pow(params.direct_attenuation, DIAG_DIST);
-            const float INDIRECT_DIAG_DECAY = std::pow(params.indirect_attenuation, DIAG_DIST);
+
             float direct_attenuation_factor;
             float indirect_attenuation_factor;
-            BOOST_FOREACH(Pr1 &pr1, adjacent_pixels)
+			boost::progress_display show_progress4(adjacent_count);
+            for(Pr1 &pr1: adjacent_pixels)
                         {
-                            BOOST_FOREACH(Pr2 &pr2, pr1.second)
+                            for(Pr2 &pr2: pr1.second)
                                         {
                                             SurgePixelSPtr new_pixel(
                                                     new SurgePixel(raster_util::coordinate_2d(pr1.first,
                                                                                               pr2.first),
                                                                    0, 0, std::numeric_limits<float>::max()));
-                                            BOOST_FOREACH(SurgePixelSPtr adjacent_cell, *(pr2.second))
+											//Iterate through adjacent cells which made up the previous front.
+                                            for(SurgePixelSPtr adjacent_cell: *(pr2.second))
                                                         {
 
                                                             if (adjacent_cell->loc.row != pr1.first &&
@@ -215,6 +285,7 @@ int main(int argc, char **argv)
                                                             {
                                                                 new_pixel->surge_height_indirect = indirect_surge_height;
                                                             }
+															++show_progress4;
                                                         }
                                             next_front->push_back(new_pixel);
                                         }
@@ -225,7 +296,8 @@ int main(int argc, char **argv)
             std::cout << "*Saving inundation and making new surge front *\n";
             std::cout << "*************************************" << std::endl;
             surge_pixels->clear();
-            BOOST_FOREACH(SurgePixelSPtr &cell, *next_front)
+			boost::progress_display show_progress5(next_front->size());
+            for(SurgePixelSPtr &cell: *next_front)
                         {
                             float elevation = dem_map->get(cell->loc);
                             float surge_height = std::max(cell->surge_height_indirect, cell->surge_height_direct);
@@ -234,8 +306,37 @@ int main(int argc, char **argv)
                                 output_map->put(cell->loc, surge_height);
                                 surge_pixels->push_back(cell);
                             }
+							++show_progress5;
                         }
         }
+
+		std::cout << "\n\n*************************************\n";
+		std::cout << "*     Finished inundating, saving   *\n";
+		std::cout << "*************************************" << std::endl;
+		boost::progress_display show_progress6(rows);
+		for (unsigned int i = 0; i < rows; ++i) {
+			++show_progress6;
+			for (unsigned int j = 0; j < cols; ++j) {
+				Coord loc(i, j);
+				auto elevation = dem_map->get(loc);
+				auto level = output_map->get(loc);
+				if ((level != OUT_NOT_VISITED_VAL))
+				{
+					auto inundation = level - elevation;
+					if (inundation < 0)
+					{
+						std::cout << "Error logic" << std::endl;
+						output_map->put(loc, OUT_NO_DATA_VAL);
+					}
+					output_map->put(loc, inundation);
+				}
+				else
+				{
+					output_map->put(loc, OUT_NO_DATA_VAL);
+				}
+				
+			}
+		}
     }
 
 

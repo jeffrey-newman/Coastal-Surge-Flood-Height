@@ -6,15 +6,12 @@ find_package(Boost REQUIRED COMPONENTS filesystem system program_options seriali
 find_package(GDAL REQUIRED)
 find_package(ZLIB REQUIRED)
 
+set(Boost_USE_STATIC_LIBS        OFF)
+set(Boost_USE_MULTITHREADED      ON)
+set(Boost_USE_STATIC_RUNTIME    ON)
+
 set(AHHZ_RASTER_UTIL "Not Specified" CACHE PATH "Path to Alex Hagen-Zanker's Raster Utility Include direction (select above blink)")
 set(AHHZ_RASTER_ITERATOR "Not Specified" CACHE PATH "Path to Alex Hagen-Zanker's Raster Iterator Include direction (select folder above blink)")
-
-include_directories(${GDAL_INCLUDE_DIR} )
-include_directories(${Boost_INCLUDE_DIRS} )
-include_directories(${AHHZ_RASTER_UTIL} )
-include_directories(${AHHZ_RASTER_ITERATOR} )
-include_directories(${ZLIB_INCLUDE_DIRS})
-
 
 set(CoastInundateSrcs
         CoastalSurgeFloodDepth.cpp
@@ -42,7 +39,20 @@ file(GLOB_RECURSE AHHZ_Utils
 )
 #message(STATUS "AHHZ files found:" ${AHHZ_Utils})
 
+SET(Boost_LIBRARIES_used
+        Boost::system
+        Boost::filesystem
+        Boost::program_options
+        Boost::serialization
+        Boost::iostreams
+        Boost::graph 
+		# These last two options are required for the version of the boost libraries I obtained on Windows. They may need to be uncommented for other systems/versions of boost. 
+        Boost::disable_autolinking
+		Boost::dynamic_linking
+)
+
 add_executable(coastal-inundation ${CoastInundateSrcs} ${CoastInundateHdrs} ${AHHZ_Utils})
-target_link_libraries(coastal-inundation ${GDAL_LIBRARY} ${Boost_LIBRARIES} ${ZLIB_LIBRARIES})
+target_include_directories(coastal-inundation PUBLIC ${GDAL_INCLUDE_DIR} ${Boost_INCLUDE_DIRS} ${AHHZ_RASTER_UTIL} ${AHHZ_RASTER_ITERATOR} ${ZLIB_INCLUDE_DIRS})
+target_link_libraries(coastal-inundation ${GDAL_LIBRARY}  ${Boost_LIBRARIES_used} ${ZLIB_LIBRARIES})
 
 add_subdirectory("Utilities")

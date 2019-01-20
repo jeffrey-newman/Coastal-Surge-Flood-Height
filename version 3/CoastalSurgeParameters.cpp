@@ -33,9 +33,9 @@ processCmdLineArguments(int argc, char **argv, CoastalSurgeParameters & _params)
     prog_opt::options_description desc("Allowed options");
     desc.add_options()
             ("help,h", "produce help message")
-            ("coast-demark-map,c", prog_opt::value<CmdLinePaths>(&_params.coast_demark_file),
-                  "path of the map that demarks where the boundary between the sea and land is")
-            ("surge-height-maps,s", prog_opt::value<std::vector<CmdLinePaths> >(&_params.surge_front_files_v)->multitoken(),
+            //("coast-demark-map,c", prog_opt::value<CmdLinePaths>(&_params.coast_demark_file),
+            //      "path of the map that demarks where the boundary between the sea and land is")
+            ("surge-height-graphs,s", prog_opt::value<std::vector<CmdLinePaths> >(&_params.surge_front_files_v)->multitoken(),
                   "path of gdal compatible rasters which specify surge height at coastline")
             ("dem-map,d", prog_opt::value<CmdLinePaths>(&_params.dem_file),
                   "path of the gdal capatible elevation data file")
@@ -45,8 +45,12 @@ processCmdLineArguments(int argc, char **argv, CoastalSurgeParameters & _params)
                   "path of the file which logs feature cell movements")
             ("record-progression,r", prog_opt::value<bool>()->default_value(false),
                   "Map that shows propagation of coastal surge wave inward inland")
+			("direct-attenuation,a", prog_opt::value<float>(&_params.direct_attenuation)->default_value(1.0), 
+				"Attenuation of surge 'wave' along shortest path")
+		    ("indirect-attenuation,i", prog_opt::value<float>(&_params.indirect_attenuation)->default_value(0.99), 
+				"Attenuation of surge 'wave' along shortest path")
             ("cfg-file,g", prog_opt::value<std::string>(),
-             "can be specified with '@name', too")
+                "can be specified with '@name', too")
             ;
 
     prog_opt::variables_map vm;
@@ -84,15 +88,15 @@ processCmdLineArguments(int argc, char **argv, CoastalSurgeParameters & _params)
         throw std::runtime_error(ss.str());
     }
 
-    try{
-        pathify(_params.coast_demark_file);
-    }
-    catch (boost::filesystem::filesystem_error & err)
-    {
-        std::stringstream ss;
-        ss << "Filesystem error: " << err.what();
-        throw std::runtime_error(ss.str());
-    }
+    //try{
+    //    pathify(_params.coast_demark_file);
+    //}
+    //catch (boost::filesystem::filesystem_error & err)
+    //{
+    //    std::stringstream ss;
+    //    ss << "Filesystem error: " << err.what();
+    //    throw std::runtime_error(ss.str());
+    //}
 
     BOOST_FOREACH(CmdLinePaths & path, _params.surge_front_files_v)
                 {

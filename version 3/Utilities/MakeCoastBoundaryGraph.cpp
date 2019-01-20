@@ -173,11 +173,11 @@ processCmdLineArguments(int argc, char* argv[], CoastBoundaryGraphParameters & _
     desc.add_options()
             ("help,h", "produce help message")
             ("input-dem-map,d", prog_opt::value<CmdLinePaths>(&_params.input_dem_file),
-             "path of the gdal capatible elevation data file")
+             "path of the gdal capatible elevation data file - required for elevation property of nodes")
             ("coastal-boundary-map,c", prog_opt::value<CmdLinePaths>(&_params.in_coast_boundary_raster),
              "path of the gdal capatible coastal boundary raster")
             ("ouput-graph,o", prog_opt::value<CmdLinePaths>(&_params.out_coast_boundary_grph_file),
-             "path of the graphml representation of coastal boundary")
+             "path of where to save the graph representation of coastal boundary - specify up to file name but without file name sufix (i.e. no .dot, or .graphml, these are added on within the code")
             ("trim-branches,t", prog_opt::value<unsigned int>(&_params.trim_level)->default_value(0),
              "remove branches if they are composed with a number of pixels less than this amount")
             ("bridge-gaps-threshold,b", prog_opt::value<double>(&_params.gap_threshold)->default_value(0),
@@ -306,11 +306,11 @@ int main(int argc, char* argv[])
         return EXIT_SUCCESS;
     }
 
-    int cols = feature_map->nCols();
+    const int cols = feature_map->nCols();
     int rows = feature_map->nRows();
     unsigned long num_cells = cols;
     num_cells *= rows;
-    boost::progress_display show_progress1(num_cells);
+    boost::progress_display show_progress1(rows);
 
     std::map<int, std::map<int, VertexDescriptor>  > channel_pixels;
 //    bool hasNoData = feature_map->HasNoDataValue();
@@ -338,8 +338,9 @@ int main(int argc, char* argv[])
 //                }
                 channel_pixels[i].insert(std::make_pair(j, v));
             }
-            ++show_progress1;
+            
         }
+		++show_progress1;
     }
 
 
